@@ -1,0 +1,27 @@
+data:
+  train:
+    num_samples: 350000 # number of training samples, if -1 all samples are loaded
+    path: '/home/lucas/PycharmProjects/Enzyme_Classification/csv_files/train_70.csv' # path to training data
+    batch_size: 128 # batch size for training
+  eval:
+    num_samples: 120000 # number of eval samples, if -1 all samples are loaded
+    path: '/home/lucas/PycharmProjects/Enzyme_Classification/csv_files/eval_20.csv' # path to eval data
+    batch_size: 256 #batch size for eval
+  test:
+    num_samples: -1 # number of test samples, if -1 all samples are loaded
+    path: '/home/lucas/PycharmProjects/Enzyme_Classification/csv_files/test_10.csv' # path to test data
+
+
+model:
+  n_epochs: 75 # number of epochs to train
+  hidden_size: 1024
+  output_size: 20
+  input_size: 1244
+  wandb : False # True if you want to use wandb logger
+  n_layers: 2 # number of hidden layers
+  save_path: # path to save models to
+  bi: False # True if you want bidirectional recurrent layer
+  recurrent_layer: 'gru' #Choose between 'gru' and 'lstm'
+  initial_learning_rate: 0.0001
+  optimizer: 0 #0 -> Adam / 1-> Rmsprop
+  weight_decay: 1e-4 #magnitude of weight decay

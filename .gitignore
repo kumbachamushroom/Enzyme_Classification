@@ -1,0 +1,11 @@
+csv_files/
+DATA_DIR/
+logs/
+models/
+nemo_experiments/
+outputs/
+SST-2/
+tsv_files/
+wandb/
+venv/
+trained-model.nemo

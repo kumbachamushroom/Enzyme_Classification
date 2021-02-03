@@ -82,48 +82,62 @@ class GRU_model(pl.LightningModule):
         self.cfg = cfg
         self.accuracy = pl.metrics.Accuracy()
         self.hidden_state = 0
-        self.gru = nn.GRU(input_size=self.input_dim,hidden_size=self.hidden_dim, num_layers=self.n_layers, batch_first=cfg.model.bi, dropout=0.3, bidirectional=cfg.model.bi)
+        self.gru = nn.GRU(input_size=self.input_dim,hidden_size=self.hidden_dim, num_layers=self.n_layers, batch_first=cfg.model.bi, dropout=self.cfg.model.dropout, bidirectional=cfg.model.bi)
         # batch first = true: x-> batch_size, sequence_length, input_size
         # batch first = false: x -> seq_len, batch, input_size
         num_directions = 2 if cfg.model.bi else 1
-        self.fc = nn.Linear(in_features=self.hidden_dim*num_directions, out_features=512)
-        self.fc_2 = nn.Linear(in_features=512, out_features=self.output_dim)
+        self.fc = nn.Linear(in_features=self.hidden_dim*num_directions+10, out_features=512+10)
+        self.fc_2 = nn.Linear(in_features=512+10, out_features=self.output_dim)
         self.relu = nn.ReLU()
-        self.batchnorm = nn.BatchNorm1d(num_features=512)#, affine=True)
-        #self.softmax = nn.Softmax(dim=1)
+        self.batchnorm = nn.BatchNorm1d(num_features=512+10)
         self.correct = []
         self.count = []
 
         self.correct_test = []
         self.count_test = []
         self.hidden_state = 0
+        self.save_hyperparameters()
 
-    def forward(self,x):
-        x = torch.unsqueeze(x,1)
-        out, self.hidden_state = self.gru(x)#,torch.zeros(self.n_layers,128, self.hidden_dim, device=x.device))
-        #out -> batch_size, seq_len, hidden_size
-        #print("THIS IS THE OUTPUS SIZE {}".format(out[:,-1].size()))
-        #print(self.fc(out[:,-1]).size())
-        out = self.relu(self.batchnorm(self.fc(out[:, -1])))
-        #print(out.size())
+    def forward(self,x_seq, x_creature):
+        x_seq = torch.unsqueeze(x_seq,1)
+        out, _ = self.gru(x_seq)#,torch.zeros(self.n_layers,128, self.hidden_dim, device=x.device))
+
+        out = torch.cat((out[:,-1], x_creature), dim=1)
+        out = self.relu(self.batchnorm(self.fc(out)))
         out = self.fc_2(out)
         return out
 
     def configure_optimizers(self):
-        if self.cfg.model.optimizer == 0:
-            return optim.Adam(self.parameters(), lr=self.cfg.model.initial_learning_rate, weight_decay=1e-5)
-        elif self.cfg.model.optimizer == 1:
-            return optim.RMSprop(self.parameters(), lr=self.cfg.model.initial_learning_rate, weight_decay=self.cfg.model.weight_decay, alpha=0.95, momentum=0.5)
+        optimizer = optim.Adam(params=self.parameters(),
+                               lr=self.cfg.model.lr_scheduler.initial_lr,
+                               amsgrad=True)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer=optimizer,
+                                                         factor=self.cfg.model.lr_scheduler.factor,
+                                                         patience=self.cfg.model.lr_scheduler.patience,
+                                                         min_lr=self.cfg.model.lr_scheduler.min_lr,
+                                                         verbose=True)
+        return {
+                'optimizer' : optimizer,
+                'lr_scheduler': lr_scheduler,
+                'monitor' : 'val_loss'
+                }
 
     def train_dataloader(self):
-        loader = DataLoader(Enzyme_Dataset(file_name=self.cfg.data.train.path, pre_pad=True,
-                                           num_samples=self.cfg.data.train.num_samples),
-                            batch_size=self.cfg.data.train.batch_size, shuffle=True,num_workers=4,
+        loader = DataLoader(dataset=Enzyme_Dataset(file_name=self.cfg.data.train.path,
+                                                   pre_pad=True,
+                                                   num_samples=self.cfg.data.train.num_samples),
+                            batch_size=self.cfg.data.train.batch_size, shuffle=True,num_workers=2,
                             pin_memory=True, prefetch_factor=4)
         return loader
 
     def val_dataloader(self):
-        loader = DataLoader(Enzyme_Dataset(file_name=self.cfg.data.eval.path, pre_pad=True, num_samples=self.cfg.data.eval.num_samples), batch_size=self.cfg.data.eval.batch_size, shuffle=False, num_workers=4,pin_memory=True)
+        loader = DataLoader(dataset=Enzyme_Dataset(file_name=self.cfg.data.eval.path,
+                                                   pre_pad=True,
+                                                   num_samples=self.cfg.data.eval.num_samples),
+                            batch_size=self.cfg.data.eval.batch_size,
+                            shuffle=False,
+                            num_workers=4,
+                            pin_memory=True)
         return loader
 
     def test_dataloader(self):
@@ -140,9 +154,9 @@ class GRU_model(pl.LightningModule):
 
     def training_step(self, batch, batch_nb):
         x_seq, x_creature, y_label = batch[0], batch[1], batch[2]
-        input = torch.cat((x_seq, x_creature),dim=1)
-        output = self.forward(input)
-        pred = output.data.max(1, keepdim=True)[1]
+        #input = torch.cat((x_seq, x_creature),dim=1)
+        output = self.forward(x_seq=x_seq, x_creature=x_creature)
+        pred = output.detach().data.max(1, keepdim=True)[1]
         self.correct.append(pred.eq(y_label.view_as(pred)).sum().item())
         self.count.append(len(pred))
         loss = F.cross_entropy(input=output, target=y_label, reduction='sum')
@@ -152,9 +166,7 @@ class GRU_model(pl.LightningModule):
     def on_train_epoch_end(self, outputs):
         print("\n THE ACCURACY FOR THIS EPOCH IS {} \n".format(sum(self.correct)/sum(self.count)))
         self.log('train_acc',sum(self.correct)/sum(self.count))
-        #print('{} {}'.format(sum(self.acc), self.acc))
-        #print(self.acc)
-        #print(sum(self.acc))
+
 
     def on_validation_epoch_start(self):
         self.correct_test = []
@@ -167,14 +179,14 @@ class GRU_model(pl.LightningModule):
 
     def validation_step(self, batch, batch_nb):
         x_seq, x_creature, y_label = batch[0], batch[1], batch[2]
-        output = self(torch.cat((x_seq, x_creature), dim=1))
-
+        #output = self(torch.cat((x_seq, x_creature), dim=1))
+        output = self.forward(x_seq=x_seq, x_creature=x_creature)
         pred = output.max(1, keepdim=True)[1]
         self.correct_test.append(pred.eq(y_label.view_as(pred)).sum().item())
         self.count_test.append(len(pred))
         loss = F.cross_entropy(input=output, target=y_label, reduction='sum')
         self.log('val_loss',loss)
-        return {'val_loss': loss, 'log': {'val_loss': loss}}
+        return {'val_loss': loss}
 
     def on_test_epoch_start(self):
         self.correct_test = []
@@ -183,8 +195,8 @@ class GRU_model(pl.LightningModule):
 
     def test_step(self, batch, batch_nb):
         x_seq, x_creature, y_label = batch[0], batch[1], batch[2]
-        output = self(torch.cat((x_seq, x_creature), dim=1))
-
+        #output = self(torch.cat((x_seq, x_creature), dim=1))
+        output = self.forward(x_seq=x_seq, x_creature=x_creature)
         pred = output.max(1, keepdim=True)[1]
         self.correct.append(pred.eq(y_label.view_as(pred)).sum().item())
         self.count.append(len(pred))
@@ -210,7 +222,7 @@ class GRU_model(pl.LightningModule):
 @hydra.main(config_path='/home/lucas/PycharmProjects/Enzyme_Classification/LSTM_only_config.yaml')
 def main(cfg: DictConfig) -> None:
     LearningScheduler = lambda epoch: epoch // 10
-    wandb_logger = WandbLogger(name='GRU_H1024_350000_2Layer_Uni_MLP_Normalized_256', project='enzyme_classification')
+    wandb_logger = WandbLogger(project='enzyme_classification')
     seed_everything(100)
     cuda = 1 if torch.cuda.is_available() else 0
     model = GRU_model(cfg)
@@ -219,8 +231,8 @@ def main(cfg: DictConfig) -> None:
                          default_root_dir='/home/lucas/PycharmProjects/Enzyme_Classification/models',
                          max_epochs=cfg.model.n_epochs,
                          fast_dev_run=True,
-                         track_grad_norm=2,
-                         gradient_clip_val=0.5,
+                         #track_grad_norm=2,
+                         #gradient_clip_val=0.5,
                          gpus=1)#, early_stop_callback=None)
     trainer.fit(model)
 

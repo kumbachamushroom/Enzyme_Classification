@@ -87,9 +87,11 @@ class GRU_model(pl.LightningModule):
         # batch first = false: x -> seq_len, batch, input_size
         num_directions = 2 if cfg.model.bi else 1
         self.fc = nn.Linear(in_features=self.hidden_dim*num_directions+10, out_features=512+10)
-        self.fc_2 = nn.Linear(in_features=512+10, out_features=self.output_dim)
+        self.fc_2 = nn.Linear(in_features=512+10, out_features=256)
+        self.fc_3 = nn.Linear(in_features=256, out_features=self.output_dim)
         self.relu = nn.ReLU()
         self.batchnorm = nn.BatchNorm1d(num_features=512+10)
+        self.batchnorm2 = nn.BatchNorm1d(num_features=256)
         self.correct = []
         self.count = []
 
@@ -104,7 +106,8 @@ class GRU_model(pl.LightningModule):
 
         out = torch.cat((out[:,-1], x_creature), dim=1)
         out = self.relu(self.batchnorm(self.fc(out)))
-        out = self.fc_2(out)
+        out = self.relu(self.batchnorm2(self.fc_2(out)))
+        out = self.fc_3(out)
         return out
 
     def configure_optimizers(self):
@@ -116,9 +119,11 @@ class GRU_model(pl.LightningModule):
                                                          patience=self.cfg.model.lr_scheduler.patience,
                                                          min_lr=self.cfg.model.lr_scheduler.min_lr,
                                                          verbose=True)
+        #lambda_lr= lambda epoch: ((1 / self.cfg.model.n_epochs) * epoch) if epoch < (0.5 * self.cfg.model.n_epochs) else ((1 / self.cfg.model.n_epochs) * self.cfg.model.n_epochs - epoch)
+        #lambda_scheduler = optim.lr_scheduler.LambdaLR(optimizer=optimizer, lambda_lr=lambda_lr)
         return {
                 'optimizer' : optimizer,
-                'lr_scheduler': lr_scheduler,
+                'lr_scheduler': scheduler,
                 'monitor' : 'val_loss'
                 }
 
@@ -159,7 +164,7 @@ class GRU_model(pl.LightningModule):
         pred = output.detach().data.max(1, keepdim=True)[1]
         self.correct.append(pred.eq(y_label.view_as(pred)).sum().item())
         self.count.append(len(pred))
-        loss = F.cross_entropy(input=output, target=y_label, reduction='sum')
+        loss = F.cross_entropy(input=output, target=y_label, reduction='mean')
         self.log('train_loss',loss)
         return {'loss':loss}
 
@@ -184,7 +189,7 @@ class GRU_model(pl.LightningModule):
         pred = output.max(1, keepdim=True)[1]
         self.correct_test.append(pred.eq(y_label.view_as(pred)).sum().item())
         self.count_test.append(len(pred))
-        loss = F.cross_entropy(input=output, target=y_label, reduction='sum')
+        loss = F.cross_entropy(input=output, target=y_label, reduction='mean')
         self.log('val_loss',loss)
         return {'val_loss': loss}
 
@@ -221,7 +226,8 @@ class GRU_model(pl.LightningModule):
 
 @hydra.main(config_path='/home/lucas/PycharmProjects/Enzyme_Classification/LSTM_only_config.yaml')
 def main(cfg: DictConfig) -> None:
-    LearningScheduler = lambda epoch: epoch // 10
+    max_epochs = cfg.model.n_epochs
+
     wandb_logger = WandbLogger(project='enzyme_classification')
     seed_everything(100)
     cuda = 1 if torch.cuda.is_available() else 0
@@ -230,7 +236,7 @@ def main(cfg: DictConfig) -> None:
     trainer = pl.Trainer(logger=wandb_logger if cfg.model.wandb else None,
                          default_root_dir='/home/lucas/PycharmProjects/Enzyme_Classification/models',
                          max_epochs=cfg.model.n_epochs,
-                         fast_dev_run=True,
+                         fast_dev_run=False,
                          #track_grad_norm=2,
                          #gradient_clip_val=0.5,
                          gpus=1)#, early_stop_callback=None)

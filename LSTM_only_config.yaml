@@ -1,8 +1,8 @@
 data:
   train:
-    num_samples: 550000# number of training samples, if -1 all samples are loaded
+    num_samples: 550000 # number of training samples, if -1 all samples are loaded
     path: '/home/lucas/PycharmProjects/Enzyme_Classification/csv_files/train_70.csv' # path to training data
-    batch_size: 256 # batch size for training
+    batch_size: 512 # batch size for training
   eval:
     num_samples: 200000 # number of eval samples, if -1 all samples are loaded
     path: '/home/lucas/PycharmProjects/Enzyme_Classification/csv_files/eval_20.csv' # path to eval data
@@ -18,14 +18,15 @@ model:
   output_size: 20
   input_size: 1234
   wandb : False # True if you want to use wandb logger
-  n_layers: 2 # number of hidden layers
+  n_layers: 3 # number of hidden layers
   save_path: # path to save models to
-  bi: False # True if you want bidirectional recurrent layer
+  bi: True # True if you want bidirectional recurrent layer
   #recurrent_layer: 'gru' #Choose between 'gru' and 'lstm'
   lr_scheduler:
-    initial_lr: 0.0001
-    factor: 0.5
+    initial_lr: 0.001
+    factor: 0.25
     patience: 5
     cooldown: 10
-    min_lr: 0.00001
-  weight_decay: 1e-7 #magnitude of weight decay
+    min_lr: 0.000001
+  weight_decay: 1e-5 #magnitude of weight decay
+  dropout: 0.35
